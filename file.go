@@ -9,12 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Download the zip file at the given URL to a temporary local directory.
 // Returns the absolute path to the downloaded zip file.
 // IMPORTANT: You must call "defer os.RemoveAll(dir)" in the calling function when done with the downloaded zip file!
-func downloadGithubZipFile(gitHubCommit GitHubCommit, gitHubToken string, instance GitHubInstance) (string, *FetchError) {
+func downloadGithubZipFile(logger *logrus.Logger, gitHubCommit GitHubCommit, gitHubToken string, instance GitHubInstance) (string, *FetchError) {
 
 	var zipFilePath string
 
@@ -33,6 +35,7 @@ func downloadGithubZipFile(gitHubCommit GitHubCommit, gitHubToken string, instan
 		return zipFilePath, wrapError(err)
 	}
 
+	logger.Debugf("Performing HTTP request to download GitHub ZIP Archive: %s", req.URL)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return zipFilePath, wrapError(err)
@@ -51,6 +54,7 @@ func downloadGithubZipFile(gitHubCommit GitHubCommit, gitHubToken string, instan
 		return zipFilePath, wrapError(err)
 	}
 
+	logger.Debugf("Writing ZIP Archive to temporary path: %s", tempDir)
 	err = ioutil.WriteFile(filepath.Join(tempDir, "repo.zip"), respBodyBuffer.Bytes(), 0644)
 	if err != nil {
 		return zipFilePath, wrapError(err)
@@ -151,12 +155,17 @@ func MakeGitHubZipFileRequest(gitHubCommit GitHubCommit, gitHubToken string, ins
 
 	// This represents either a commit, branch, or git tag
 	var gitRef string
+	// Ordering matters in this conditional
+	// GitRef needs to be the fallback and therefore must be last
+	// See https://github.com/gruntwork-io/fetch/issues/87 for an example
 	if gitHubCommit.CommitSha != "" {
 		gitRef = gitHubCommit.CommitSha
 	} else if gitHubCommit.BranchName != "" {
 		gitRef = gitHubCommit.BranchName
 	} else if gitHubCommit.GitTag != "" {
 		gitRef = gitHubCommit.GitTag
+	} else if gitHubCommit.GitRef != "" {
+		gitRef = gitHubCommit.GitRef
 	} else {
 		return request, fmt.Errorf("Neither a GitCommitSha nor a GitTag nor a BranchName were specified so impossible to identify a specific commit to download.")
 	}

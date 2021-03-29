@@ -5,6 +5,8 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetListOfReleasesFromGitHubRepo(t *testing.T) {
@@ -55,6 +57,39 @@ func TestGetListOfReleasesFromGitHubRepo(t *testing.T) {
 			t.Fatalf("error parsing github releases for repo %s. expected first release = %s, actual = %s", tc.repoUrl, tc.lastReleaseTag, releases[0])
 		}
 	}
+}
+
+func TestGetNextPath(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		links       string
+		expectedUrl string
+	}{
+		{"next-and-last-urls", `<https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2>; rel="next", <https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=3>; rel="last"`, "https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2"},
+		{"next-and-last-urls-no-whitespace", `<https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2>;rel="next",<https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=3>;rel="last"`, "https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2"},
+		{"next-and-last-urls-extra-whitespace", `    <https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2>;      rel="next",     <https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=3>   ;    rel="last"`, "https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2"},
+		{"first-and-next-urls", `<https://api.github.com/repos/123456789/example-repo/tags?page=1>; rel="first", <https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2>; rel="next"`, "https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2"},
+		{"next-only", `<https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2>; rel="next"`, "https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2"},
+		{"first-and-last-urls", `<https://api.github.com/repos/123456789/example-repo/tags?page=1>; rel="first", <https://api.github.com/repos/123456789/example-repo/tags?per_page=100&page=2>; rel="last"`, ""},
+		{"empty", ``, ""},
+		{"garbage", `junk not related to links header at all`, ""},
+	}
+
+	for _, tc := range cases {
+		// The following is necessary to make sure tc's values don't
+		// get updated due to concurrency within the scope of t.Run(..) below
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			nextUrl := getNextUrl(tc.links)
+			require.Equal(t, tc.expectedUrl, nextUrl)
+		})
+	}
+
 }
 
 func TestParseUrlIntoGithubInstance(t *testing.T) {
@@ -112,7 +147,8 @@ func TestParseUrlIntoGithubInstance(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		inst, err := ParseUrlIntoGithubInstance(tc.repoUrl, tc.apiv)
+		logger := GetProjectLogger()
+		inst, err := ParseUrlIntoGithubInstance(logger, tc.repoUrl, tc.apiv)
 		if err != nil {
 			t.Fatalf("error extracting url %s into a GitHubRepo struct: %s", tc.repoUrl, err)
 		}
